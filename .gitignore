@@ -3,3 +3,6 @@ venv
 *.jpeg
 /utils/__pycache__/
 .vscode
+.idea
+.venv
+temp_parts
