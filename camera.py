@@ -8,8 +8,8 @@ def capture_image(output_path, camera_id=0):
     cap = cv2.VideoCapture(camera_id)  # Use the provided camera_id
 
     # Set the resolution
-    cap.set(cv2.CAP_PROP_FRAME_WIDTH, 1080)
-    cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 1080)
+    cap.set(cv2.CAP_PROP_FRAME_WIDTH, 3840)
+    cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 2160)
 
     if not cap.isOpened():
         print(f"Error: Could not open camera {camera_id}.")
