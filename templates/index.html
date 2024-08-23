@@ -3,406 +3,71 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>AI-based Plant Monitoring System</title>
+    <title>Plant Monitoring System</title>
     <style>
-        body {
-            font-family: Arial, sans-serif;
-            margin: 0;
-            padding: 0;
-            display: flex;
-            justify-content: center;
-            align-items: center;
-            height: 100vh;
-            background-color: #f0f0f0;
-            overflow: hidden;
-        }
-        .container {
-            width: 100vw;
-            height: 100vh;
-            background: #fff;
-            box-shadow: 0 2px 2px rgba(0, 0, 0, 0.1);
-            padding: 0;
-            box-sizing: border-box;
-            display: flex;
-            flex-direction: column;
-            align-items: center;
-            overflow: hidden;
-        }
-        header {
-            width: 100%;
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            padding: 10px;
-            margin: 0;
-            box-sizing: border-box;
-        }
-        .logo {
-            max-width: 100px;
-            margin-right: 10px;
-            cursor: pointer;
-        }
-        .title {
-            margin: 0;
-            flex-grow: 1;
-            padding-left: 10px;
-        }
-        .main-content {
-            display: flex;
-            flex-direction: column;
-            justify-content: flex-start;
-            align-items: flex-start;
-            width: 100%;
-            flex-grow: 1;
-            box-sizing: border-box;
-            padding: 0 10px;
-            margin-top: 0px;
-            position: relative;
-        }
-        .image-container {
-            display: flex;
-            justify-content: flex-start;
-            align-items: center;
-            background-color: #ffffff;
-            box-shadow: 0 1px 1px rgba(0, 0, 0, 0.2);
-            position: relative;
-            width: 73%;
-            max-height: calc(60vh - 50px);
-            aspect-ratio: 4 / 3;
-            box-sizing: border-box;
-            margin: 1px;
-            overflow: hidden;
-            transition: max-height 0.3s ease, box-shadow 0.3s ease;
-        }
-
-        .image-container.no-shadow {
-            box-shadow: none;
-        }
-        .image-container img {
-            width: auto;
-            height: auto;
-            max-width: 100%;
-            max-height: 100%;
-            object-fit: contain;
-            border: 1px dashed #ccc;
-            display: block;
-        }
-        .image-container.warning {
-            max-height: calc(50vh - 50px);
-        }
-        .placeholder {
-            width: 100%;
-            height: 100%;
-            display: flex;
-            justify-content: center;
-            align-items: center;
-            color: #aaa;
-            font-size: 18px;
-            text-align: center;
-            background-color: #ffffff;
-        }
-        .buttons {
-            display: flex;
-            flex-direction: column;
-            align-items: center;
-            gap: 20px;
-            margin-top: 20px;
-            position: absolute;
-            right: 60px;
-            top: 30%;
-            transform: translateY(-50%);
-            margin: 0;
-        }
-
-        .button-row {
-            display: flex;
-            flex-direction: flex-start;
-            justify-content: space-between;
-            width: 100%;
-            max-width: 320px;
-        }
-
-        .button-column {
-            display: flex;
-            flex-direction: column;
-            gap: 20px;
-        }
-        .button-column button {
-            width: 150px;
-            height: 35px;
-            background-color: #8bc34a;
-            border: none;
-            border-radius: 20px;
-            font-size: 16px;
-            cursor: pointer;
-            color: black;
-            text-align: center;
-            margin-bottom: 20px;
-        }
-
-        .button-column button:last-child {
-            margin-bottom: 0; /* Ensure no extra margin for the last button */
-        }
-        .db-image-button {
-            width: 150px;
-            height: 80px;
-            background-color: #8bc34a;
-            border: none;
-            border-radius: 20px;
-            font-size: 16px;
-            cursor: pointer;
-            color: black;
-            text-align: center;
-            align-self: flex-start;
-        }
-        .full-width {
-            display: flex;
-            justify-content: center;
-            width: 100%;
-        }
-        .full-width button {
-            width: 320px;
-            height: 70px;
-            background-color: #8bc34a;
-            border: none;
-            border-radius: 20px;
-            font-size: 16px;
-            cursor: pointer;
-            color: black;
-            text-align: center;
-        }
-        .content {
-            width: 100%;
-            max-width: 800px;
-            text-align: left;
-            margin: 20px 0;
-            overflow: hidden;
-        }
-        .monitoring-info {
-            display: flex;
-            justify-content: space-between;
-            background-color: #ffff00;
-            padding: 10px;
-            border-radius: 10px;
-            width: 100%;
-            max-width: 700px;
-            box-sizing: border-box;
-            height: auto;
-            position: absolute;
-            top: 85%;
-            left: 20%;
-            transform: translate(-50%, -50%);
-            line-height: 1.8;
-            z-index: 1;
-        }
-        .monitoring-info div {
-            width: 45%;
-        }
-        .sick-plants {
-            border: 2px solid red;
-            padding: 2px 4px;
-            display: inline-block;
-            font-weight: bold;
-            color: red;
-        }
-        .status {
-            font-weight: bold;
-            padding: 2px 4px;
-            display: inline-block;
-            color: white;
-            background-color: green;
-            border-radius: 5px;
-        }
-        .status.off-track {
-            background-color: red;
-        }
-        #prediction-message {
-            display: none;
-            color: red;
-            font-weight: bold;
-            margin-top: 10px;
-        }
-        .alert {
-            padding: 20px;
-            background-color: #f44336;
-            color: white;
-            margin-bottom: 15px;
-            width: 100%;
-            text-align: center;
-            box-sizing: border-box;
-            display: none;
-            transition: all 0.3s ease;
-        }
-        .alert.show {
-            display: block;
-        }
-        .modal {
-            display: none;
-            position: fixed;
-            z-index: 1;
-            left: 0;
-            top: 0;
-            width: 100%;
-            height: 100%;
-            overflow: auto;
-            background-color: rgb(0,0,0);
-            background-color: rgba(0,0,0,0.4);
-            padding-top: 60px;
-        }
-    
-        .modal-content {
-            background-color: #fefefe;
-            margin: 5% auto;
-            padding: 20px;
-            border: 1px solid #888;
-            width: 80%;
-            max-width: 300px;
-            text-align: center;
-            border-radius: 10px;
-        }
-    
-        .close {
-            color: #aaa;
-            float: right;
-            font-size: 28px;
-            font-weight: bold;
-        }
-    
-        .close:hover,
-        .close:focus {
-            color: black;
-            text-decoration: none;
-            cursor: pointer;
-        }
-        .disabled {
-            pointer-events: none;
-            opacity: 0.5;
-        }
+        /* Basic styles for the buttons, status bar, and image */
+        body { font-family: Arial, sans-serif; }
+        #status-bar { display: none; background-color: yellow; padding: 10px; text-align: center; }
+        .disabled { opacity: 0.5; pointer-events: none; }
+        img { width: 100%; max-width: 600px; }
+        #info-box { border: 1px solid #ccc; padding: 10px; margin-top: 10px; }
     </style>
+    <script>
+        let predictionInProgress = false;
 
-<script>
-    let predictionInProgress = false;
+        function checkPredictionStatus() {
+            fetch('/prediction_status')
+                .then(response => response.json())
+                .then(data => {
+                    predictionInProgress = data.prediction_running || data.biomass_cal_running;
 
-    function checkPredictionStatus() {
-        fetch('/prediction_status')
-            .then(response => response.json())
-            .then(data => {
-                console.log("Prediction status:", data);
-                predictionInProgress = data.prediction_running || data.biomass_cal_running;
+                    const statusBar = document.getElementById('status-bar');
+                    const buttons = document.querySelectorAll('button');
 
-                const predictionMessageElement = document.getElementById('prediction-message');
-                const alertElement = document.getElementById('alert-message');
-                const imageContainer = document.querySelector('.image-container');
-
-                if (predictionInProgress) {
-                    console.log("Prediction or biomass calculation is running. Showing alert.");
-                    alertElement.classList.add('show');
-                    imageContainer.classList.add('warning');
-                    predictionMessageElement.style.display = 'none';
-
-                    // Disable the buttons
-                    const buttons = document.querySelectorAll('button[type="submit"]');
-                    buttons.forEach(button => button.classList.add('disabled'));
-                } else {
-                    console.log("No prediction or biomass calculation running. Hiding alert.");
-                    alertElement.classList.remove('show');
-                    imageContainer.classList.remove('warning');
-
-                    // Enable the buttons
-                    const buttons = document.querySelectorAll('button[type="submit"]');
-                    buttons.forEach(button => button.classList.remove('disabled'));
-                }
-            })
-            .catch(error => console.error('Error fetching prediction status:', error));
-    }
-
-    document.addEventListener('DOMContentLoaded', () => {
-        // Check prediction status initially
-        checkPredictionStatus();
-
-        // Periodically check the prediction status
-        setInterval(checkPredictionStatus, 1000);
-
-        // Remove shadow after image loads
-        const imageContainer = document.querySelector('.image-container img');
-        const container = document.querySelector('.image-container');
-
-        if (imageContainer) {
-            imageContainer.addEventListener('load', () => {
-                container.classList.add('no-shadow');
-            });
+                    if (predictionInProgress) {
+                        statusBar.style.display = 'block';
+                        buttons.forEach(button => button.classList.add('disabled'));
+                    } else {
+                        statusBar.style.display = 'none';
+                        buttons.forEach(button => button.classList.remove('disabled'));
+                    }
+                })
+                .catch(error => console.error('Error checking prediction status:', error));
         }
-    });
-</script>
+
+        document.addEventListener('DOMContentLoaded', () => {
+            setInterval(checkPredictionStatus, 1000);
+        });
+    </script>
 </head>
 <body>
-<div class="container">
-    <header>
-        <h1 class="title">AI-based Plant Monitoring System</h1>
-        <a href="{{ url_for('index') }}">
-            <img src="{{ url_for('static', filename='logo.png') }}" alt="Logo" class="logo">
-        </a>
-    </header>
-    <div class="main-content">
-        <div id="alert-message" class="alert">
-            Prediction or biomass calculation is in progress. Please wait until it's complete.
-        </div>
-        <div class="image-container">
-            {% if result_image %}
-                <img src="{{ url_for('send_image', filepath=result_image) }}" alt="Classification Report Image">
-            {% elif selected_image %}
-                {% if selected_image_type == 'live_image' %}
-                    <img src="{{ url_for('send_image', filepath=selected_image) }}" alt="Selected Live Image">
-                {% else %}
-                    <img src="{{ url_for('send_image', filepath=selected_image) }}" alt="Selected Image">
-                {% endif %}
-            {% else %}
-                <div class="placeholder">No image selected</div>
-            {% endif %}
-        </div>
-        <div class="buttons">
-            <div class="button-row">
-                <div class="button-column">
-                    <form action="{{ url_for('load_image') }}" method="post">
-                        <button type="submit" name="source_type" value="live_image">Live Level 1</button>
-                        <button type="submit" name="source_type" value="live_image_level2">Live Level 2</button>
-                    </form>
-                </div>
-                <form action="{{ url_for('load_image') }}" method="post">
-                    <button class="db-image-button" type="submit" name="source_type" value="db_image">DB Image</button>
-                </form>
-            </div>
-            <div class="button-row full-width">
-                <form action="{{ url_for('classification_report') }}" method="post">
-                    <input type="hidden" name="selected_image" value="{{ selected_image }}">
-                    <input type="hidden" name="image_type" value="{{ selected_image_type }}">
-                    <button type="submit">Classification Report</button>
-                </form>
-            </div>
-            <div class="button-row full-width">
-                <form action="{{ url_for('developer_mode') }}" method="post">
-                    <input type="hidden" name="selected_image" value="{{ selected_image }}">
-                    <input type="hidden" name="image_type" value="{{ selected_image_type }}">
-                    <button type="submit">Developer Mode</button>
-                </form>
-            </div>
-        </div>
-        <div id="prediction-message">Predictions are ready. You can now view the classification report.</div>
+    <div id="status-bar">Please wait, processing...</div>
+    
+    <!-- Image display area -->
+    <div>
+        <img src="{{ url_for('send_image', filepath=displayed_image) }}" alt="Selected Image">
     </div>
-    <div class="monitoring-info">
-        <div>
-            <strong>Monitoring Information</strong><br>
-            Type: {{ typ if typ not in ["", None, "-"] else "" }}<br>
-            Week: {{ week if week not in ["", None, "-"] else "" }}<br>
-            Biomass: {{ "{:.1f}%".format(result_image_biomass) if result_image_biomass not in ["", None, "-"] else "" }}<br>
-            Sick Plants: <span class="sick-plants">{{ sick_count if sick_count not in ["", None, "-"] else "" }}</span><br>
-            Status: <span class="status {{ 'off-track' if status == 'Off Track' else '' }}">{{ status if status not in ["", None, "-"] else "" }}</span>
-        </div>
-        <div>
-            <strong>Recommendations</strong><br>
-            {{ recommendation if recommendation not in ["", None, "-"] else "" }}
-        </div>
+    
+    <!-- Buttons for selecting image source -->
+    <div>
+        <form action="{{ url_for('load_image') }}" method="post">
+            <button type="submit" name="source_type" value="db">Load DB Image</button>
+            <button type="submit" name="source_type" value="cam1">Capture from Cam1</button>
+            <button type="submit" name="source_type" value="cam2">Capture from Cam2</button>
+        </form>
     </div>
-</div>
+
+    <!-- Buttons for generating reports -->
+    <div>
+        <form action="{{ url_for('report') }}" method="get">
+            <button type="submit" name="type" value="classification_report">Classification Report</button>
+            <button type="submit" name="type" value="developer_mode">Developer Mode</button>
+        </form>
+    </div>
+
+    <!-- Info box for displaying JSON data -->
+    <div id="info-box">
+        {{ json_info }}
+    </div>
 </body>
 </html>
