@@ -6,7 +6,7 @@ import sqlite3
 import cv2
 import threading
 import time
-from biomass import calculate_biomass, save_green_extracted_image
+from biomass import calculate_biomass as calc_biomass, save_green_extracted_image, get_status_and_recommendation
 from camera import capture_image
 from bestprediction import select_best_prediction
 import re
@@ -15,7 +15,7 @@ app = Flask(__name__)
 app.secret_key = 'supersecretkey'
 
 # Directory where your database images are stored
-DB_IMAGE_FOLDER = 'cropped_images'
+DB_IMAGE_FOLDER = 'db_images'
 LIVE_IMAGE_FOLDER = 'live_images'
 PREDICTIONS_FOLDER = 'predictions'
 BIOMASS_FOLDER = 'biomass'
@@ -60,13 +60,7 @@ def index():
     selected_image = request.args.get('selected_image', "")
     result_image = request.args.get('result_image', "")
     result_image_biomass = request.args.get('result_image_biomass', "-")
-    status = request.args.get('status', "")
-    recommendation = request.args.get('recommendation', "")
-    selected_image_type = request.args.get('selected_image_type', "")
-    sick_count = request.args.get('sick_count', "")
-    typ = request.args.get('typ', "")
-    week = request.args.get('week', "")
-
+    
     # Ensure result_image_biomass is either a float or "-"
     if result_image_biomass not in ["", "-", None]:
         try:
@@ -74,16 +68,29 @@ def index():
         except ValueError:
             result_image_biomass = "-"
 
+    # Ensure path uses forward slashes
+    if selected_image:
+        selected_image = selected_image.replace('\\', '/')
+
+    # Load monitoring info (placeholder values for now)
+    info_json = {
+        "status": "",
+        "recommendation": "",
+        "sick_spots": "",
+        "type": "",
+        "week": "",
+        "biomass": "-"
+    }
+
     return render_template('index.html', 
                            selected_image=selected_image, 
                            result_image=result_image, 
-                           result_image_biomass=result_image_biomass, 
-                           status=status, 
-                           recommendation=recommendation, 
-                           selected_image_type=selected_image_type, 
-                           sick_count=sick_count, 
-                           typ=typ, 
-                           week=week)
+                           result_image_biomass="-",  
+                           status="",  
+                           recommendation="",  
+                           sick_count="",  
+                           typ="",  
+                           week="")
 
 
 @app.route('/load_image', methods=['POST'])
@@ -94,7 +101,7 @@ def load_image():
 
     # Check if prediction or biomass calculation is running
     if prediction_running.is_set() or biomass_cal_running.is_set():
-        return redirect(url_for('index', result="A prediction is already in progress. Please wait."))
+        return redirect(url_for('index', status="A prediction is already in progress. Please wait."))
 
     # set calculation flags
     prediction_running.set()
@@ -109,9 +116,11 @@ def load_image():
         image_list = sorted(os.listdir(DB_IMAGE_FOLDER))
         
         if not image_list:
-            return render_template('index.html', result="No images found in the database.")
+            prediction_running.clear()
+            biomass_cal_running.clear()
+            return render_template('index.html', status="No images found in the database.")
 
-        selected_image = image_list[current_db_index%len(image_list)]
+        selected_image = image_list[current_db_index % len(image_list)]
         current_db_index += 1
         current_image = os.path.abspath(os.path.join(DB_IMAGE_FOLDER, selected_image))
 
@@ -128,28 +137,24 @@ def load_image():
         if not captured_image_path:
             prediction_running.clear()
             biomass_cal_running.clear()
-            return render_template('index.html', result="Error capturing live image")
+            return render_template('index.html', status="Error capturing live image")
 
         current_image = os.path.abspath(captured_image_path)
         print(f"Captured live image: {captured_image_path}")
 
     # Process the selected or captured image
-    threading.Thread(target=process_image).start()
+    threading.Thread(target=process_image, args=(source_type,)).start()
 
-    return redirect(url_for('index', selected_image=selected_image))
+    return redirect(url_for('index', selected_image=current_image))
 
 
-def process_image():
+def process_image(source_type):
     global current_image, classification_image, dev_image, prediction_running, biomass_cal_running
 
-    run_prediction()
-    calculate_biomass()
-    return
-    ######################################## caching is complicated, let's skip it for now
     try:
         image_id = os.path.basename(current_image).replace('.jpg', '')
 
-        # Check if the predictions for this image are available
+        # Check if the predictions for this image already exist
         conn = sqlite3.connect(DATABASE)
         cursor = conn.cursor()
         cursor.execute('''
@@ -157,52 +162,35 @@ def process_image():
         ''', (image_id,))
         predictions = cursor.fetchall()
         conn.close()
-        
-        # also check if the annotated images are available!
-        # todo koushik
-        # set image paths (as absolute paths)
-        classification_image = None #todo koushik
-        dev_image = None #todo koushik
 
+        # Paths for the annotated images
+        classification_image_path = os.path.join(PREDICTIONS_FOLDER, 'results', 'sick_' + os.path.basename(current_image))
+        dev_image_path = os.path.join(PREDICTIONS_FOLDER, 'results', 'all_' + os.path.basename(current_image))
+
+        # Check if both the predictions and the annotated images exist
         if predictions:
-            # Predictions exist, use them directly
-            print(f"Predictions for {current_image} already exist in the database.")
-            handle_existing_predictions()
+            print(f"Predictions and annotated images already exist for {current_image}.")
+            classification_image = classification_image_path
+            dev_image = dev_image_path
+            if not os.path.exists(os.path.join(BIOMASS_FOLDER, image_id + '.txt')):
+                calculate_biomass(current_image)
         else:
-            # Predictions do not exist, perform prediction and biomass calculation
-            print(f"No existing predictions for {current_image}. Running prediction...")
-            run_prediction()
-            calculate_biomass()
+            print(f"No existing predictions or annotated images for {current_image}. Running prediction and processing...")
+            run_prediction(current_image, source_type) 
+            calculate_biomass(current_image)
 
     finally:
-        with prediction_lock:
-            prediction_running = False
-            biomass_cal_running = False
-
-        print(f"Processing for {selected_image} completed.")
-
-
-def handle_existing_predictions():
-    """
-    Handle the existing predictions for an image.
-    This function can be used to process and display predictions from the database.
-    """
-    global current_image, classification_image
-    print(f"Handling existing predictions for {image_name}.")
-    for prediction in predictions:
-        print(f"Prediction: {prediction}")
-    
-    # Optionally, update the classification image or status to reflect that it's already predicted
-    global classification_image
-    classification_image = image_name
-    prediction_running.clear()
+        # Clear the flags to indicate the processing is complete
+        prediction_running.clear()
+        biomass_cal_running.clear()
+        print(f"Processing for {current_image} completed.")
 
 
-def run_prediction():
-    global prediction_running, current_image, classification_image, dev_image
+def run_prediction(image_path, source_type):
+    global classification_image, dev_image, current_image
     command = [
         'python', 'run.py',
-        '--source', current_image,
+        '--source', image_path,
         '--weights', 'best.pt',
         '--save-txt',
         '--save-conf',
@@ -213,7 +201,7 @@ def run_prediction():
         subprocess.run(command, check=True)
 
         # Save all predictions to the database
-        prediction_txt_path = os.path.join(PREDICTIONS_FOLDER, 'results', 'labels', os.path.basename(current_image).replace('.jpg', '.txt'))
+        prediction_txt_path = os.path.join(PREDICTIONS_FOLDER, 'results', 'labels', os.path.basename(image_path).replace('.jpg', '.txt'))
         with open(prediction_txt_path, 'r') as file:
             predictions = file.read().splitlines()
 
@@ -232,76 +220,76 @@ def run_prediction():
         conn.commit()
         conn.close()
         print(f"Predictions for {image_path} saved.")
-        load_monitoring_info()
-        generate_images() # todo cals and set the annotated images
-
-
-        with prediction_lock:
-            classification_image = os.path.basename(image_path)
         
-        with prediction_lock:
-            classification_image = os.path.basename(image_path)
+        # Generate images only once, based on the predictions
+        generate_images('classification_report', image_path)
+        generate_images('developer_mode', image_path)
+
+        # Calculate and save biomass if not already calculated
+        if not os.path.exists(os.path.join(BIOMASS_FOLDER, os.path.basename(image_path).replace('.jpg', '.txt'))):
+            calculate_biomass(image_path)
 
     except subprocess.CalledProcessError as e:
         print(f"Error occurred: {e}")
     except sqlite3.OperationalError as e:
         print(f"Database error occurred: {e}")
-    finally:
-        prediction_running.clear()
 
 
-def calculate_biomass():
-    global biomass_cal_running, current_image
+def calculate_biomass(image_path):
+    global biomass_cal_running
+
+    # Ensure the image path is correct and print it for debugging
+    print(f"Attempting to load image from path: {image_path}")
     
-    image = cv2.imread(current_image)
-    biomass, mask = calculate_biomass(current_image)
+    image = cv2.imread(image_path)
 
-    biomass_file_path = os.path.join(BIOMASS_FOLDER, os.path.basename(current_image).replace('.jpg', '.txt'))
+    # Check if the image was loaded successfully
+    if image is None:
+        print(f"Error: Could not load image at {image_path}. Please check the file path and try again.")
+        biomass_cal_running.clear()
+        return None, None, None, None
+
+    biomass, mask = calc_biomass(image)  # Correct function call
+
+    biomass_file_path = os.path.join(BIOMASS_FOLDER, os.path.basename(image_path).replace('.jpg', '.txt'))
     with open(biomass_file_path, 'w') as f:
         f.write(str(biomass))
 
     images_folder = os.path.join(BIOMASS_FOLDER, 'images')
     os.makedirs(images_folder, exist_ok=True)
 
-    green_image_file_path = os.path.join(images_folder, os.path.basename(current_image))
+    green_image_file_path = os.path.join(images_folder, os.path.basename(image_path))
     save_green_extracted_image(image, mask, green_image_file_path)
 
-    biomass_cal_running.clear()
+    # Calculate sick spots based on predictions
+    conn = sqlite3.connect(DATABASE)
+    cursor = conn.cursor()
+    cursor.execute('''
+        SELECT prediction FROM predictions WHERE image_id = ?
+    ''', (os.path.basename(image_path).replace('.jpg', ''),))
+    predictions = cursor.fetchall()
+    conn.close()
+
+    sick_spots = 0
+    for row in predictions:
+        prediction = row[0].replace(f"{os.path.basename(image_path).replace('.jpg', '')} ", "")
+        try:
+            class_id, _, _, _, _, _ = map(float, prediction.split())
+            if int(class_id) != 0:  # Assuming class_id 0 means healthy
+                sick_spots += 1
+        except ValueError:
+            continue
+
+    # Get status and recommendation
+    status, recommendation = get_status_and_recommendation(biomass, sick_spots)
+
+    return status, recommendation, biomass, sick_spots
 
 
-def report(report_type):
-    global prediction_running, biomass_cal_running, classification_image, dev_image
+def generate_images(report_type, image_path):
+    global classification_image, dev_image
     
-    output_image = None
-    
-    if prediction_running.is_set() or biomass_cal_running.is_set():
-        return render_template('index.html', result="Prediction or biomass calculation is still in progress. Please wait.")
-    if not current_image:
-        return render_template('index.html', result=f"No image selected for {report_type.replace('_', ' ')}")
-    
-    if (report_type == 'classification_report'):
-        if not classification_image:
-            return render_template('index.html', result="No classification image available. Please run the prediction first.")
-        else:
-            output_image = classification_image
-    elif (report_type == 'developer_mode'):
-        if not dev_image:
-            return render_template('index.html', result="No developer image available. Please run the prediction first.")
-        else:
-            output_image = dev_image
-    else:
-        raise ValueError(f"Invalid report type: {report_type}")
-
-    info_json = load_monitoring_info()
-
-    return redirect(url_for('index', result_image=output_image, display_info=info_json))
-
-
-def generate_images():
-    # takes global variables current_image, and sets classification_image and dev_image
-    # todo koushik finish implementation
-    
-    image_id = os.path.basename(current_image).replace('.jpg', '')
+    image_id = os.path.basename(image_path).replace('.jpg', '')
 
     conn = sqlite3.connect(DATABASE)
     cursor = conn.cursor()
@@ -312,33 +300,23 @@ def generate_images():
     conn.close()
 
     if not result:
-        return render_template('index.html', result=f"No predictions found for the selected image")
+        print(f"No predictions found for the selected image: {image_path}")
+        return
 
     predictions = []
     for row in result:
-        if len(row) < 1:
-            continue
         prediction = row[0].replace(f"{image_id} ", "")
-        
-        # Attempt to split the prediction string correctly
         try:
             class_id, x_center, y_center, width, height, conf = map(float, prediction.split())
+            box = [x_center - width / 2, y_center - height / 2, x_center + width / 2, y_center + height / 2]
+            predictions.append({'class_id': class_id, 'box': box, 'score': conf})
         except ValueError:
-            # Handle cases where the string is not correctly formatted
-            prediction_parts = re.findall(r'[0-9.]+', prediction)
-            if len(prediction_parts) == 6:
-                class_id, x_center, y_center, width, height, conf = map(float, prediction_parts)
-            else:
-                # Skip this prediction if it cannot be parsed correctly
-                continue
-        
-        box = [x_center - width/2, y_center - height/2, x_center + width/2, y_center + height/2]
-        predictions.append({'class_id': class_id, 'box': box, 'score': conf})
+            continue
 
-    # Select the best predictions using the select_best_prediction function
     best_predictions = select_best_prediction(predictions)
 
-    img = cv2.imread(os.path.join(LIVE_IMAGE_FOLDER if selected_image_type == 'live_image' else DB_IMAGE_FOLDER, selected_image))
+    img = cv2.imread(image_path)
+    output_img = img.copy()  # Image for output based on report_type
 
     sick_spots = 0
     for pred in best_predictions:
@@ -351,71 +329,130 @@ def generate_images():
         bottom_right = (abs_x_center + abs_width // 2, abs_y_center + abs_height // 2)
 
         if int(pred['class_id']) == 0:
-            if report_type == 'developer_mode':  # Show "healthy" only in developer mode
+            if report_type == 'developer_mode':
                 color = (0, 255, 0)  # Green for Healthy
                 label = f"Healthy {pred['score']:.2f}"
-                cv2.rectangle(img, top_left, bottom_right, color, 2)
-                cv2.putText(img, label, (top_left[0], top_left[1] - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.5, color, 2)
+                cv2.rectangle(output_img, top_left, bottom_right, color, 2)
+                cv2.putText(output_img, label, (top_left[0], top_left[1] - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.5, color, 2)
         else:
             sick_spots += 1
             color = (0, 0, 255)  # Red for Sick
             label = f"Sick {pred['score']:.2f}"
-            cv2.rectangle(img, top_left, bottom_right, color, 2)
-            cv2.putText(img, label, (top_left[0], top_left[1] - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.5, color, 2)
+            cv2.rectangle(output_img, top_left, bottom_right, color, 2)
+            cv2.putText(output_img, label, (top_left[0], top_left[1] - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.5, color, 2)
 
-        if report_type == 'classification_report':
-        new_image_path = os.path.join(PREDICTIONS_FOLDER, 'results', 'sick_' + selected_image)
-    else:  # developer_mode
-        new_image_path = os.path.join(PREDICTIONS_FOLDER, 'results', 'all_' + selected_image)
+    # Save the image based on report_type
+    if report_type == 'classification_report':
+        classification_image_path = os.path.join(PREDICTIONS_FOLDER, 'results', 'sick_' + os.path.basename(image_path))
+        cv2.imwrite(classification_image_path, output_img)
+        classification_image = classification_image_path
+    elif report_type == 'developer_mode':
+        dev_image_path = os.path.join(PREDICTIONS_FOLDER, 'results', 'all_' + os.path.basename(image_path))
+        cv2.imwrite(dev_image_path, output_img)
+        dev_image = dev_image_path
 
-    cv2.imwrite(new_image_path, img)
-    
-    classification_image = None #todo koushik
-    dev_image = None #todo koushik
 
+def load_monitoring_info(selected_image):
+    image_id = os.path.basename(selected_image).replace('.jpg', '')
 
-def load_monitoring_info():
-    image_id = os.path.basename(current_image).replace('.jpg', '')  # use to access stored data
-    # load all the necessary information and put together a json object to send to the frontend
-    info_json = {}
-    info_json["week"] = 3
-    info_json["type"] = "Basil"
-    info_json["status"] = None # todo koushik
-    info_json["recommendation"] = None # todo koushik
-    #status, recommendation = generate_monitoring_info(biomass, sick_spots, week)
-    
-    
-    # I put a bunch of code here that has something todo with the monitoring info, please make it work
-    # # Load biomass value
-    # biomass_file_path = os.path.join(BIOMASS_FOLDER, image_id + '.txt')
-    # if os.path.exists(biomass_file_path):
-    #     with open(biomass_file_path, 'r') as f:
-    #         biomass = float(f.read().strip())
-    # else:
-    #     biomass = 0.0
+    # Check if the biomass file exists
+    biomass_file_path = os.path.join(BIOMASS_FOLDER, image_id + '.txt')
+    if not os.path.exists(biomass_file_path):
+        print(f"Biomass file for {selected_image} does not exist. Skipping monitoring info load.")
+        return {}
 
-    #from biomass import get_status_and_recommendation
-    # def load_monitoring_info(biomass, sick_spots, week):
-    #     status, recommendation = get_status_and_recommendation(biomass, sick_spots)
-    #     return status, recommendation
+    # Load biomass value
+    with open(biomass_file_path, 'r') as f:
+        biomass = float(f.read().strip())
 
+    # Retrieve predictions to calculate sick spots
+    conn = sqlite3.connect(DATABASE)
+    cursor = conn.cursor()
+    cursor.execute('''
+        SELECT prediction FROM predictions WHERE image_id = ?
+    ''', (image_id,))
+    predictions = cursor.fetchall()
+    conn.close()
+
+    sick_spots = 0
+    for row in predictions:
+        prediction = row[0].replace(f"{image_id} ", "")
+        try:
+            class_id, _, _, _, _, _ = map(float, prediction.split())
+            if int(class_id) != 0:  # Assuming class_id 0 means healthy
+                sick_spots += 1
+        except ValueError:
+            continue
+
+    # Get status and recommendation from existing data
+    status, recommendation = get_status_and_recommendation(biomass, sick_spots)
+
+    # Populate the info_json with all necessary details
+    info_json = {
+        "week": 3,  # Hardcoded for now; adjust as needed
+        "type": "Basil",  # Adjust as needed
+        "status": status,
+        "recommendation": recommendation,
+        "biomass": biomass,
+        "sick_spots": sick_spots
+    }
 
     return info_json
 
 
 @app.route('/classification_report', methods=['POST'])
 def classification_report():
-    return report('classification_report')
+    selected_image = request.form.get('selected_image', current_image)
+    monitoring_info = load_monitoring_info(selected_image) # Load monitoring info only when button is pressed
+    return report('classification_report', monitoring_info)
 
 
 @app.route('/developer_mode', methods=['POST'])
 def developer_mode():
-    return report('developer_mode')
+    selected_image = request.form.get('selected_image', current_image)
+    monitoring_info = load_monitoring_info(selected_image)  # Load monitoring info only when button is pressed
+    return report('developer_mode', monitoring_info)
 
 
-@app.route('/images/<filepath>')
+def report(report_type, monitoring_info):
+    global classification_image, dev_image
+    
+    output_image = None
+    
+    if prediction_running.is_set() or biomass_cal_running.is_set():
+        return render_template('index.html', status="Prediction or biomass calculation is still in progress. Please wait.")
+    if not current_image:
+        return render_template('index.html', status=f"No image selected for {report_type.replace('_', ' ')}")
+    
+    if report_type == 'classification_report':
+        if not classification_image:
+            return render_template('index.html', status="No classification image available. Please run the prediction first.")
+        else:
+            output_image = classification_image
+    elif report_type == 'developer_mode':
+        if not dev_image:
+            return render_template('index.html', status="No developer image available. Please run the prediction first.")
+        else:
+            output_image = dev_image
+    else:
+        raise ValueError(f"Invalid report type: {report_type}")
+
+    return render_template('index.html',
+                           result_image=output_image,
+                           selected_image=current_image,
+                           result_image_biomass=monitoring_info.get("biomass", "-"),
+                           status=monitoring_info.get("status", ""),
+                           recommendation=monitoring_info.get("recommendation", ""),
+                           sick_count=monitoring_info.get("sick_spots", ""),
+                           typ=monitoring_info.get("type", ""),
+                           week=monitoring_info.get("week", ""))
+
+
+@app.route('/images/<path:filepath>')
 def send_image(filepath):
-    return send_from_directory(filepath)
+    directory = os.path.dirname(filepath)
+    filename = os.path.basename(filepath)
+    return send_from_directory(directory, filename)
 
 
 @app.route('/prediction_status')
