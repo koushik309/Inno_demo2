@@ -6,3 +6,6 @@ venv
 .idea
 .venv
 temp_parts
+predictions
+biomass
+predictions.db

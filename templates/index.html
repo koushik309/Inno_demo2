@@ -11,7 +11,7 @@
             padding: 0;
             display: flex;
             justify-content: center;
-            align-items: center;
+            align-items: flex-start;
             height: 100vh;
             background-color: #f0f0f0;
             overflow: hidden;
@@ -27,6 +27,7 @@
             flex-direction: column;
             align-items: center;
             overflow: hidden;
+            position: relative;
         }
         header {
             width: 100%;
@@ -47,6 +48,23 @@
             flex-grow: 1;
             padding-left: 10px;
         }
+        .status-bar-placeholder {
+            width: 100%;
+            position: fixed;
+            top: 85px;
+            left: 0;
+            height: 35px;
+            z-index: 100;
+            background-color: transparent;
+            text-align: center;
+        }
+        #status-bar {
+            display: none;
+            background-color: rgba(255, 255, 255, 0.8);
+            padding: 10px;
+            color: red;
+            font-weight: bold;
+        }
         .main-content {
             display: flex;
             flex-direction: column;
@@ -56,7 +74,7 @@
             flex-grow: 1;
             box-sizing: border-box;
             padding: 0 10px;
-            margin-top: 0px;
+            margin-top: 50px;
             position: relative;
         }
         .image-container {
@@ -190,7 +208,7 @@
             height: auto;
             position: absolute;
             top: 85%;
-            left: 20%;
+            left: 25%;
             transform: translate(-50%, -50%);
             line-height: 1.8;
             z-index: 1;
@@ -279,7 +297,6 @@
             opacity: 0.5;
         }
     </style>
-
     <script>
         let predictionInProgress = false;
 
@@ -287,55 +304,32 @@
             fetch('/prediction_status')
                 .then(response => response.json())
                 .then(data => {
-                    console.log("Prediction status:", data);
                     predictionInProgress = data.prediction_running || data.biomass_cal_running;
 
-                    const predictionMessageElement = document.getElementById('prediction-message');
-                    const alertElement = document.getElementById('alert-message');
-                    const imageContainer = document.querySelector('.image-container');
+                    const statusBar = document.getElementById('status-bar');
+                    const buttons = document.querySelectorAll('button');
 
                     if (predictionInProgress) {
-                        console.log("Prediction or biomass calculation is running. Showing alert.");
-                        alertElement.classList.add('show');
-                        imageContainer.classList.add('warning');
-                        predictionMessageElement.style.display = 'none';
-
-                        // Disable the buttons
-                        const buttons = document.querySelectorAll('button[type="submit"]');
+                        statusBar.style.display = 'block';
                         buttons.forEach(button => button.classList.add('disabled'));
                     } else {
-                        console.log("No prediction or biomass calculation running. Hiding alert.");
-                        alertElement.classList.remove('show');
-                        imageContainer.classList.remove('warning');
-
-                        // Enable the buttons
-                        const buttons = document.querySelectorAll('button[type="submit"]');
+                        statusBar.style.display = 'none';
                         buttons.forEach(button => button.classList.remove('disabled'));
                     }
                 })
-                .catch(error => console.error('Error fetching prediction status:', error));
+                .catch(error => console.error('Error checking prediction status:', error));
         }
 
         document.addEventListener('DOMContentLoaded', () => {
-            // Check prediction status initially
-            checkPredictionStatus();
-
-            // Periodically check the prediction status
             setInterval(checkPredictionStatus, 1000);
-
-            // Remove shadow after image loads
-            const imageContainer = document.querySelector('.image-container img');
-            const container = document.querySelector('.image-container');
-
-            if (imageContainer) {
-                imageContainer.addEventListener('load', () => {
-                    container.classList.add('no-shadow');
-                });
-            }
         });
     </script>
 </head>
 <body>
+    <div class="status-bar-placeholder">
+        <div id="status-bar">Please wait, processing...</div>
+    </div>
+    
     <div class="container">
         <header>
             <h1 class="title">AI-based Plant Monitoring System</h1>
@@ -348,14 +342,8 @@
                 Prediction or biomass calculation is in progress. Please wait until it's complete.
             </div>
             <div class="image-container">
-                {% if result_image %}
-                    <img src="{{ url_for('send_prediction_image', filename=result_image) }}" alt="Classification Report Image">
-                {% elif selected_image %}
-                    {% if selected_image_type == 'live_image' %}
-                        <img src="{{ url_for('send_live_image', filename=selected_image) }}" alt="Selected Live Image">
-                    {% else %}
-                        <img src="{{ url_for('send_image', filename=selected_image) }}" alt="Selected Image">
-                    {% endif %}
+                {% if displayed_image %}
+                    <img src="{{ url_for('send_image', filepath=displayed_image) }}" alt="Selected Image">
                 {% else %}
                     <div class="placeholder">No image selected</div>
                 {% endif %}
@@ -364,45 +352,41 @@
                 <div class="button-row">
                     <div class="button-column">
                         <form action="{{ url_for('load_image') }}" method="post">
-                            <button type="submit" name="source_type" value="live_image">Live Level 1</button>
-                            <button type="submit" name="source_type" value="live_image_level2">Live Level 2</button>
+                            <button type="submit" name="source_type" value="cam1">Live Level 1</button>
+                            <button type="submit" name="source_type" value="cam2">Live Level 2</button>
                         </form>
                     </div>
                     <form action="{{ url_for('load_image') }}" method="post">
-                        <button class="db-image-button" type="submit" name="source_type" value="db_image">DB Image</button>
+                        <button class="db-image-button" type="submit" name="source_type" value="db">Load DB Image</button>
                     </form>
                 </div>
                 <div class="button-row full-width">
-                    <form action="/classification_report" method="post">
-                        <input type="hidden" name="selected_image" value="{{ selected_image }}">
-                        <input type="hidden" name="image_type" value="{{ selected_image_type }}">
-                        <button type="submit">Classification Report</button>
+                    <form action="{{ url_for('report') }}" method="get">
+                        <button type="submit" name="type" value="classification_report">Classification Report</button>
                     </form>
                 </div>
                 <div class="button-row full-width">
-                    <form action="/developer_mode" method="post">
-                        <input type="hidden" name="selected_image" value="{{ selected_image }}">
-                        <input type="hidden" name="image_type" value="{{ selected_image_type }}">
-                        <button type="submit">Developer Mode</button>
+                    <form action="{{ url_for('report') }}" method="get">
+                        <button type="submit" name="type" value="developer_mode">Developer Mode</button>
                     </form>
                 </div>
             </div>
-            <div id="prediction-message">Predictions are ready. You can now view the classification report.</div>
-        </div>
-        <div class="monitoring-info">
-            <div>
-                <strong>Monitoring Information</strong><br>
-                Type: {{ typ if typ not in ["", None, "-"] else "" }}<br>
-                Week: {{ week if week not in ["", None, "-"] else "" }}<br>
-                Biomass: {{ "{:.1f}%".format(result_image_biomass) if result_image_biomass not in ["", None, "-"] else "" }}<br>
-                Sick Plants: <span class="sick-plants">{{ sick_count if sick_count not in ["", None, "-"] else "" }}</span><br>
-                Status: <span class="status {{ 'off-track' if status == 'Off Track' else '' }}">{{ status if status not in ["", None, "-"] else "" }}</span>
+        
+            <div class="monitoring-info">
+                <div>
+                    <strong>Monitoring Information</strong><br>
+                    Type: {{ json_info['type'] if json_info else "" }}<br>
+                    Week: {{ json_info['week'] if json_info else "" }}<br>
+                    Biomass: {{ "{:.1f}%".format(json_info['biomass']) if json_info and json_info['biomass'] else "" }}<br>
+                    Sick Plants: <span class="sick-plants">{{ json_info['sick_spots'] if json_info else "" }}</span><br>
+                    Status: <span class="status {{ 'off-track' if json_info and json_info['status'] == 'Off Track' else '' }}">{{ json_info['status'] if json_info else "" }}</span>
+                </div>
+                <div>
+                    <strong>Recommendations</strong><br>
+                    {{ json_info['recommendation'] if json_info else "" }}
+                </div>
             </div>
-            <div>
-                <strong>Recommendations</strong><br>
-                {{ recommendation if recommendation not in ["", None, "-"] else "" }}
-            </div>
         </div>
-    </div>
+    </div>    
 </body>
 </html>
