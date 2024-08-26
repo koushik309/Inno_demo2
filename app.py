@@ -55,14 +55,11 @@ def init_db():
 
 init_db()
 
-
 @app.route('/')
 def index():
-    global displayed_image, current_image
-     # Inject the displayed_image and any other information needed
-    json_info = load_monitoring_info()  # Adjust based on your logic
-    return render_template('index.html', displayed_image=displayed_image, json_info=json_info)
-
+    global displayed_image
+    # Initial page load should not include monitoring info
+    return render_template('index.html', displayed_image=displayed_image, json_info=None)
 
 @app.route('/load_image', methods=['POST'])
 def load_image():
@@ -74,16 +71,15 @@ def load_image():
     if prediction_running.is_set() or biomass_cal_running.is_set():
         return redirect(url_for('index', status="A prediction is already in progress. Please wait."))
 
-    # set calculation flags
+    # Set calculation flags
     prediction_running.set()
     biomass_cal_running.set()
-    # reset global variables
+    # Reset global variables
     classification_image = None
     dev_image = None
     
-    # set current image
+    # Set current image based on the source type
     if source_type == 'db':
-        # Process the DB image
         image_list = sorted(os.listdir(DB_IMAGE_FOLDER))
         
         if not image_list:
@@ -96,12 +92,10 @@ def load_image():
         current_image = os.path.abspath(os.path.join(DB_IMAGE_FOLDER, selected_image))
 
     elif source_type in ['cam1', 'cam2']:
-        # Capture live image (either level 1 or level 2)
         timestamp = int(time.time())
         selected_image = f'{source_type}_{timestamp}.jpg'
         image_path = os.path.join(LIVE_IMAGE_FOLDER, selected_image)
 
-        # Choose the correct camera ID based on the source_type
         if source_type == 'cam1':
             camera_id = 0
         elif source_type == 'cam2':
@@ -120,11 +114,10 @@ def load_image():
     
     displayed_image = current_image
     
-    # start process_image as new thread
+    # Start processing the image in a new thread
     threading.Thread(target=process_image).start()
 
     return redirect(url_for('index'))
-
 
 def process_image():
     global current_image, classification_image, dev_image, prediction_running, biomass_cal_running
@@ -390,6 +383,7 @@ def report():
     if not current_image:
         return render_template('index.html', status=f"No image selected for {report_type.replace('_', ' ')}")
     
+    # Determine which image to display based on the report type
     if report_type == 'classification_report':
         if not classification_image:
             return render_template('index.html', status="No classification image available. Please run the prediction first.")
@@ -403,7 +397,12 @@ def report():
     else:
         raise ValueError(f"Invalid report type: {report_type}")
 
-    return redirect(url_for('index'))
+    # Load monitoring info only when a report is requested
+    json_info = load_monitoring_info()
+
+    # Render the template with the selected image and monitoring info
+    return render_template('index.html', displayed_image=displayed_image, json_info=json_info)
+
 
 @app.route('/images')
 def send_image():
