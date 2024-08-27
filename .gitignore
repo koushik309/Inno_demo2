@@ -9,3 +9,4 @@ temp_parts
 predictions
 biomass
 predictions.db
+__pycache__
