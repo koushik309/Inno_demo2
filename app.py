@@ -6,10 +6,12 @@ import sqlite3
 import cv2
 import threading
 import time
-from biomass import calculate_biomass as calc_biomass, save_green_extracted_image, get_status_and_recommendation
+from biomass import calculate_biomass as calc_biomass, save_green_extracted_image, get_status_and_recommendations
 from camera import capture_image
 from bestprediction import select_best_prediction
+from cropping import crop_image
 import urllib.parse
+import numpy as np
 
 app = Flask(__name__)
 app.secret_key = 'supersecretkey'
@@ -60,6 +62,13 @@ def index():
     global displayed_image
     # Initial page load should not include monitoring info
     return render_template('index.html', displayed_image=displayed_image, json_info=None)
+
+@app.route('/reset_image')
+def reset_image():
+    global displayed_image,current_db_index
+    displayed_image = ""  # Clear the displayed image
+    current_db_index = 0
+    return redirect(url_for('index'))
 
 @app.route('/load_image', methods=['POST'])
 def load_image():
@@ -157,6 +166,27 @@ def process_image():
         print(f"Processing for {current_image} completed.")
 
 
+
+def get_week() -> int:
+    global current_image
+    basename = os.path.basename(current_image)
+    switch_dict = {
+        "image_0_20231222-230226.jpg": 1,
+        "image_0_20240312-120507.jpg": 4,
+        "image_0_20240318-120020.jpg":4,
+        "image_0_20240322-060004.jpg":4,
+        "image_0_20240327-060005.jpg":4,
+        "image_0_20240605-060010.jpg":4,
+        "image_0_20240815-060343.jpg":4,
+        "image_1_20240201-060010.jpg":2,
+        "image_1_20240209-120501.jpg":2,
+        "image_2_20240405-140501.jpg":2,
+        "image_2_20240601-060308.jpg":3,
+        "image_3_20240624-140303.jpg":5,
+        "image_3_20240605-060704.jpg":3
+    }
+    return switch_dict.get(basename, 3)
+
 def run_prediction():
     global classification_image, dev_image, current_image
     command = [
@@ -204,44 +234,88 @@ def run_prediction():
         print(f"Database error occurred: {e}")
 
 
+Difference = np.array([0, 4, 52])
+
+def apply_scaling_correction(img, difference):
+    """
+    Apply a white balance correction to the image based on the provided difference.
+    """
+    # Calculate the correction factor from the difference
+    correction_factor = 1 + (difference / 255.0)
+    print(f"Correction factor: {correction_factor}")
+
+    # Convert the image to float32 for precise adjustment
+    corrected_img = img.astype(np.float32)
+
+    # Apply the correction factor to each channel (B, G, R)
+    for c in range(3):  # Iterating over B, G, R channels
+        corrected_img[:, :, c] *= correction_factor[c]
+
+    # Clip values to be in the range [0, 255] and convert back to uint8
+    corrected_img = np.clip(corrected_img, 0, 255).astype(np.uint8)
+
+    return corrected_img
+
 def calculate_biomass():
     global biomass_cal_running, current_image
 
-    # Ensure the image path is correct and print it for debugging
     print(f"Attempting to load image from path: {current_image}")
     
     image = cv2.imread(current_image)
 
-    # Check if the image was loaded successfully
     if image is None:
         print(f"Error: Could not load image at {current_image}. Please check the file path and try again.")
         biomass_cal_running.clear()
-        return None, None, None, None
+        return None, None
 
-    biomass, mask = calc_biomass(image)  # Correct function call
+    # Extract camera ID from the image filename
+    try:
+        filename = os.path.basename(current_image)
+        camera_id = int(filename.split('_')[1])
+    except (IndexError, ValueError) as e:
+        print(f"Error extracting camera ID from filename {filename}: {e}")
+        biomass_cal_running.clear()
+        return None, None
 
-    biomass_file_path = os.path.join(BIOMASS_FOLDER, os.path.basename(current_image).replace('.jpg', '.txt'))
+    # Perform cropping on the image based on the camera ID
+    cropped_image = crop_image(image, camera_id)
+
+    if cropped_image is None:
+        print(f"Error: Could not crop the image for camera ID {camera_id}.")
+        biomass_cal_running.clear()
+        return None, None
+
+    # Apply white balance correction
+    corrected_image = apply_scaling_correction(cropped_image, Difference)
+
+    # Calculate biomass using the corrected image
+    biomass, mask = calc_biomass(corrected_image) # change cropped image to image to remove cropping and white balance.
+
+    # Save biomass value
+    image_id = os.path.basename(current_image).replace('.jpg', '')
+    biomass_file_path = os.path.join(BIOMASS_FOLDER, f"{image_id}.txt")
     with open(biomass_file_path, 'w') as f:
         f.write(str(biomass))
 
+    # Optionally save the green extracted image
     images_folder = os.path.join(BIOMASS_FOLDER, 'images')
     os.makedirs(images_folder, exist_ok=True)
 
-    green_image_file_path = os.path.join(images_folder, os.path.basename(current_image))
-    save_green_extracted_image(image, mask, green_image_file_path)
+    green_image_file_path = os.path.join(images_folder, f"{image_id}.jpg")
+    save_green_extracted_image(corrected_image, mask, green_image_file_path)
 
     # Calculate sick spots based on predictions
     conn = sqlite3.connect(DATABASE)
     cursor = conn.cursor()
     cursor.execute('''
         SELECT prediction FROM predictions WHERE image_id = ?
-    ''', (os.path.basename(current_image).replace('.jpg', ''),))
+    ''', (image_id,))
     predictions = cursor.fetchall()
     conn.close()
 
     sick_spots = 0
     for row in predictions:
-        prediction = row[0].replace(f"{os.path.basename(current_image).replace('.jpg', '')} ", "")
+        prediction = row[0].replace(f"{image_id} ", "")
         try:
             class_id, _, _, _, _, _ = map(float, prediction.split())
             if int(class_id) != 0:  # Assuming class_id 0 means healthy
@@ -249,10 +323,7 @@ def calculate_biomass():
         except ValueError:
             continue
 
-    # Get status and recommendation
-    status, recommendation = get_status_and_recommendation(biomass, sick_spots)
-
-    return status, recommendation, biomass, sick_spots
+    return biomass, sick_spots
 
 
 def generate_images():
@@ -357,21 +428,23 @@ def load_monitoring_info():
         except ValueError:
             continue
 
-    # Get status and recommendation from existing data
-    status, recommendation = get_status_and_recommendation(biomass, sick_spots)
+    # Get the week number using the get_week function
+    week_number = get_week()
+
+    # Get status and recommendation based on biomass, sick spots, and week number
+    result = get_status_and_recommendations(biomass, sick_spots, week_number)
 
     # Populate the info_json with all necessary details
     info_json = {
-        "week": 3,  # Hardcoded for now; adjust as needed
+        "week": week_number,  # Now using dynamic week number
         "type": "Basil",  # Adjust as needed
-        "status": status,
-        "recommendation": recommendation,
+        "status": result['status'],
+        "recommendation": result['recommendation'],
         "biomass": biomass,
         "sick_spots": sick_spots
     }
 
     return info_json
-
 
 @app.route('/report')
 def report():
