@@ -10,3 +10,4 @@ predictions
 biomass
 predictions.db
 __pycache__
+*.pyc
