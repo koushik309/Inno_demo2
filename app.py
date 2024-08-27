@@ -237,8 +237,6 @@ def run_prediction():
         print(f"Database error occurred: {e}")
 
 
-Difference = np.array([0, 4, 52])
-
 def apply_scaling_correction(img, difference):
     """
     Apply a white balance correction to the image based on the provided difference.
@@ -289,6 +287,7 @@ def calculate_biomass():
         return None, None
 
     # Apply white balance correction
+    Difference = np.array([0, 4, 52])
     corrected_image = apply_scaling_correction(cropped_image, Difference)
 
     # Calculate biomass using the corrected image
