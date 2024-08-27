@@ -24,10 +24,30 @@ def save_green_extracted_image(image, mask, output_path):
     cv2.imwrite(output_path, green_pixels)
     print(f"Green extracted image saved to {output_path}")
 
-def get_status_and_recommendation(biomass, sick_spots):
-    status = "On Track" if biomass > 50 else "Off Track"
-    if sick_spots < 10:
-        recommendation = "Abnormal plant pattern detected -> Check individual plants for decontamination"
+def get_status_and_recommendations(biomass: int, sick_spots: int, week: int) -> dict:
+    if biomass is None or sick_spots is None or week is None:
+        return {"status": "Error loading results", "recommendation": ""}
+    
+    # Determine the status based on the week and biomass
+    if week == 1 and 0 <= biomass <= 10:
+        status = "On Track"
+    elif week == 2 and 10 <= biomass <= 25:
+        status = "On Track"
+    elif week == 3 and 25 <= biomass <= 40:
+        status = "On Track"
+    elif week == 4 and 40 <= biomass <= 80:
+        status = "On Track"
+    elif week == 5 and 80 <= biomass <= 100:
+        status = "On Track"
     else:
-        recommendation = "Nutrition deficiency detected -> increase nutrition and water supply"
-    return status, recommendation
+        status = "Off Track"
+    
+    # Determine the recommendation based on the number of sick spots
+    if 1< sick_spots < 10:
+        recommendation = "Abnormal plant pattern detected! Check individual plants for decontamination."
+    elif sick_spots > 10:
+        recommendation = "Nutrition deficiency detected! Increase nutrition and water supply."
+    else:
+        recommendation = "No specific recommendation."
+
+    return {'status': status, "recommendation": recommendation}
