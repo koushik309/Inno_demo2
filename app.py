@@ -12,6 +12,8 @@ from bestprediction import select_best_prediction
 from cropping import crop_image
 import warnings
 import numpy as np
+import argparse
+
 
 app = Flask(__name__)
 app.secret_key = 'supersecretkey'
@@ -36,6 +38,7 @@ current_image = ""
 classification_image = ""
 dev_image = ""
 current_db_index = 0
+specified_model = None
 
 
 def init_db():
@@ -196,7 +199,7 @@ def run_prediction():
     command = [
         'python', 'run.py',
         '--source', current_image,
-        '--weights', 'best.pt',
+        '--weights', specified_model,
         '--save-txt',
         '--save-conf',
         '--project', PREDICTIONS_FOLDER,
@@ -492,6 +495,15 @@ def prediction_status_endpoint():
     global prediction_running, biomass_cal_running
     return jsonify({"prediction_running": prediction_running.is_set(), "biomass_cal_running": biomass_cal_running.is_set()})
 
+def parse_args():
+    global specified_model
+    parser = argparse.ArgumentParser(description="Run the Flask app with a specified model.")
+    parser.add_argument('--model', type=str, default='model-19-run-3.pt', help='Path to the model file to use for predictions.')
+    args = parser.parse_args()  # Parse the arguments
+    specified_model = args.model  # Assign the parsed model path to the global variable
+
 
 if __name__ == '__main__':
+    parse_args()
+    print(f"Model used: {specified_model}")  # Optional: print to verify the model path
     app.run(debug=True)
