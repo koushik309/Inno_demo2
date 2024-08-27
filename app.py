@@ -171,7 +171,6 @@ def process_image():
         biomass_cal_running.clear()
 
 
-
 def get_week() -> int:
     global current_image
     basename = os.path.basename(current_image)
@@ -266,7 +265,7 @@ def start_calculate_biomass_thread():
 def calculate_biomass():
     global biomass_cal_running, current_image
 
-    print(f"Attempting to load image from path: {current_image}")
+    print(f"Calculate biomass for: {current_image}")
     
     image = cv2.imread(current_image)
 
