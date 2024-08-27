@@ -65,9 +65,12 @@ def index():
 
 @app.route('/reset_image')
 def reset_image():
-    global displayed_image,current_db_index
+    global displayed_image, current_db_index, current_image, classification_image, dev_image
     displayed_image = ""  # Clear the displayed image
     current_db_index = 0
+    current_image = ""
+    classification_image = ""
+    dev_image = ""
     return redirect(url_for('index'))
 
 @app.route('/load_image', methods=['POST'])
