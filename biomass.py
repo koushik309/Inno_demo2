@@ -25,6 +25,9 @@ def save_green_extracted_image(image, mask, output_path):
     print(f"Green extracted image saved to {output_path}")
 
 def get_status_and_recommendations(biomass: int, sick_spots: int, week: int) -> dict:
+    if biomass is None or sick_spots is None or week is None:
+        return {"status": "Error loading results", "recommendation": ""}
+    
     # Determine the status based on the week and biomass
     if week == 1 and 0 <= biomass <= 10:
         status = "On Track"

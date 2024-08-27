@@ -10,7 +10,7 @@ from biomass import calculate_biomass as calc_biomass, save_green_extracted_imag
 from camera import capture_image
 from bestprediction import select_best_prediction
 from cropping import crop_image
-import urllib.parse
+import warnings
 import numpy as np
 
 app = Flask(__name__)
@@ -153,20 +153,22 @@ def process_image():
         # Check if both the predictions and the annotated images exist
         if predictions:
             print(f"Predictions and annotated images already exist for {current_image}.")
+            prediction_running.clear()
             classification_image = classification_image_path
             dev_image = dev_image_path
             if not os.path.exists(os.path.join(BIOMASS_FOLDER, image_id + '.txt')):
-                calculate_biomass()
+                start_calculate_biomass_thread()
+            else:
+                biomass_cal_running.clear()
         else:
             print(f"No existing predictions or annotated images for {current_image}. Running prediction and processing...")
             run_prediction() 
-            calculate_biomass()
-
-    finally:
-        # Clear the flags to indicate the processing is complete
+            start_calculate_biomass_thread()
+    except Exception as e:
+        print(f"An error occurred while processing the image: {e}")
+        # Clear the flags to allow processing of the next image
         prediction_running.clear()
         biomass_cal_running.clear()
-        print(f"Processing for {current_image} completed.")
 
 
 
@@ -215,7 +217,7 @@ def run_prediction():
         for prediction in predictions:
             image_id = os.path.basename(current_image).replace('.jpg', '')
             prediction_with_id = f"{image_id} {prediction}"
-            print(f"Saving prediction for {image_id}: {prediction_with_id}")
+            #print(f"Saving prediction for {image_id}: {prediction_with_id}")
             cursor.execute('''
                 INSERT INTO predictions (image_id, prediction)
                 VALUES (?, ?)
@@ -226,15 +228,15 @@ def run_prediction():
         print(f"Predictions for {current_image} saved.")
         
         generate_images()
-
-        # Calculate and save biomass if not already calculated
-        if not os.path.exists(os.path.join(BIOMASS_FOLDER, os.path.basename(current_image).replace('.jpg', '.txt'))):
-            calculate_biomass()
+        
+        prediction_running.clear()
 
     except subprocess.CalledProcessError as e:
         print(f"Error occurred: {e}")
     except sqlite3.OperationalError as e:
         print(f"Database error occurred: {e}")
+    finally:
+        prediction_running.clear()
 
 
 def apply_scaling_correction(img, difference):
@@ -257,6 +259,10 @@ def apply_scaling_correction(img, difference):
 
     return corrected_img
 
+def start_calculate_biomass_thread():
+    thread = threading.Thread(target=calculate_biomass)
+    thread.start()
+    
 def calculate_biomass():
     global biomass_cal_running, current_image
 
@@ -267,24 +273,27 @@ def calculate_biomass():
     if image is None:
         print(f"Error: Could not load image at {current_image}. Please check the file path and try again.")
         biomass_cal_running.clear()
-        return None, None
+        return
 
     # Extract camera ID from the image filename
     try:
         filename = os.path.basename(current_image)
         camera_id = int(filename.split('_')[1])
     except (IndexError, ValueError) as e:
-        print(f"Error extracting camera ID from filename {filename}: {e}")
-        biomass_cal_running.clear()
-        return None, None
+        # continue without cropping
+        warnings.warn(f"Warning extracting camera ID from filename {filename}: {e}", UserWarning)
+        camera_id = None
+
 
     # Perform cropping on the image based on the camera ID
-    cropped_image = crop_image(image, camera_id)
+    if camera_id is None:
+        cropped_image = image
+    else:
+        cropped_image = crop_image(image, camera_id)
 
     if cropped_image is None:
-        print(f"Error: Could not crop the image for camera ID {camera_id}.")
-        biomass_cal_running.clear()
-        return None, None
+        warnings.warn(f"Error cropping image for camera ID {camera_id}. Using uncropped image.", UserWarning)
+        cropped_image = image
 
     # Apply white balance correction
     Difference = np.array([0, 4, 52])
@@ -306,26 +315,8 @@ def calculate_biomass():
     green_image_file_path = os.path.join(images_folder, f"{image_id}.jpg")
     save_green_extracted_image(corrected_image, mask, green_image_file_path)
 
-    # Calculate sick spots based on predictions
-    conn = sqlite3.connect(DATABASE)
-    cursor = conn.cursor()
-    cursor.execute('''
-        SELECT prediction FROM predictions WHERE image_id = ?
-    ''', (image_id,))
-    predictions = cursor.fetchall()
-    conn.close()
-
-    sick_spots = 0
-    for row in predictions:
-        prediction = row[0].replace(f"{image_id} ", "")
-        try:
-            class_id, _, _, _, _, _ = map(float, prediction.split())
-            if int(class_id) != 0:  # Assuming class_id 0 means healthy
-                sick_spots += 1
-        except ValueError:
-            continue
-
-    return biomass, sick_spots
+    biomass_cal_running.clear()
+    return
 
 
 def generate_images():
@@ -408,28 +399,36 @@ def load_monitoring_info():
         return {}
 
     # Load biomass value
-    with open(biomass_file_path, 'r') as f:
-        biomass = float(f.read().strip())
-
+    try:
+        with open(biomass_file_path, 'r') as f:
+            biomass = float(f.read().strip())
+    except (FileNotFoundError, ValueError, IOError) as e:
+        print(f"Error loading biomass value: {e}")
+        biomass = None
+        
     # Retrieve predictions to calculate sick spots
-    conn = sqlite3.connect(DATABASE)
-    cursor = conn.cursor()
-    cursor.execute('''
-        SELECT prediction FROM predictions WHERE image_id = ?
-    ''', (image_id,))
-    predictions = cursor.fetchall()
-    conn.close()
+    try:
+        conn = sqlite3.connect(DATABASE)
+        cursor = conn.cursor()
+        cursor.execute('''
+            SELECT prediction FROM predictions WHERE image_id = ?
+        ''', (image_id,))
+        predictions = cursor.fetchall()
+        conn.close()
 
-    sick_spots = 0
-    for row in predictions:
-        prediction = row[0].replace(f"{image_id} ", "")
-        try:
-            class_id, _, _, _, _, _ = map(float, prediction.split())
-            if int(class_id) != 0:  # Assuming class_id 0 means healthy
-                sick_spots += 1
-        except ValueError:
-            continue
-
+        sick_spots = 0
+        for row in predictions:
+            prediction = row[0].replace(f"{image_id} ", "")
+            try:
+                class_id, _, _, _, _, _ = map(float, prediction.split())
+                if int(class_id) != 0:  # Assuming class_id 0 means healthy
+                    sick_spots += 1
+            except ValueError:
+                continue
+    except (sqlite3.DatabaseError, sqlite3.OperationalError) as e:
+        print(f"Database error: {e}")
+        sick_spots = None
+        
     # Get the week number using the get_week function
     week_number = get_week()
 
