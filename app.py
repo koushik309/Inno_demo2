@@ -506,4 +506,4 @@ def parse_args():
 if __name__ == '__main__':
     parse_args()
     print(f"Model used: {specified_model}")  # Optional: print to verify the model path
-    app.run(debug=True)
+    app.run(debug=False)

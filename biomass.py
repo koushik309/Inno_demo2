@@ -43,9 +43,9 @@ def get_status_and_recommendations(biomass: int, sick_spots: int, week: int) -> 
         status = "Off Track"
     
     # Determine the recommendation based on the number of sick spots
-    if 1< sick_spots < 10:
+    if 1<= sick_spots < 10:
         recommendation = "Abnormal plant pattern detected! Check individual plants for decontamination."
-    elif sick_spots > 10:
+    elif sick_spots >= 10:
         recommendation = "Nutrition deficiency detected! Increase nutrition and water supply."
     else:
         recommendation = "No specific recommendation."
