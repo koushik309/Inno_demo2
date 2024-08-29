@@ -498,7 +498,7 @@ def prediction_status_endpoint():
 def parse_args():
     global specified_model
     parser = argparse.ArgumentParser(description="Run the Flask app with a specified model.")
-    parser.add_argument('--model', type=str, default='model-19-run-3.pt', help='Path to the model file to use for predictions.')
+    parser.add_argument('--model', type=str, default='model-19-run-4.pt', help='Path to the model file to use for predictions.')
     args = parser.parse_args()  # Parse the arguments
     specified_model = args.model  # Assign the parsed model path to the global variable
 
